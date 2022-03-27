@@ -4,7 +4,7 @@
 
 using namespace pros;
 
-#define apply(f, ...) for (auto* motor : motors) {motor->(f)(__VA_ARGS__)}
+#define apply(f, ...) for (auto* motor : motors) {motor->f(__VA_ARGS__);}
 
 /// A group of motors for easy control
 template<int N>
