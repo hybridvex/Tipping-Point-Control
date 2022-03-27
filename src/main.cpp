@@ -18,7 +18,6 @@ public:
 		std::copy(data.begin(), data.end(), std::begin(motors));
 	}
 	
-
 	// Copies of motor functions that are used
 
 	void move_velocity(int32_t velocity) {apply(move_velocity, velocity);}
