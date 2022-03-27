@@ -17,6 +17,7 @@ public:
 	MotorGroup(std::initializer_list<Motor*> data): motors{} {
 		std::copy(data.begin(), data.end(), std::begin(motors));
 	}
+	
 
 	// Copies of motor functions that are used
 
