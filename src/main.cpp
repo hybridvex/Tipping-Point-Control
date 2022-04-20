@@ -35,12 +35,19 @@ Motor l3 {6, E_MOTOR_GEARSET_06, false, E_MOTOR_ENCODER_DEGREES};
 MotorGroup<3> left {&l1, &l2, &l3};
 
 Motor hlift {11, E_MOTOR_GEARSET_36, false, E_MOTOR_ENCODER_DEGREES};
+Motor intake {20, E_MOTOR_GEARSET_06, true, E_MOTOR_ENCODER_DEGREES};
 
 IMU inert {10};
 
 ADIDigitalOut claw {'A'};
 ADIDigitalOut blift {'B'};
 ADIDigitalIn claw_switch {'C'};
+ADIDigitalIn back_switch {'D'};
+
+vision_signature_s_t YELLOW_MOGO = Vision::signature_from_utility(1, 1681, 2071, 1876, -4131, -3429, -3780, 5.700, 0);
+vision_signature_s_t BLUE_MOGO = Vision::signature_from_utility(2, -3419, -2703, -3061, 4121, 11077, 7599, 3.000, 0);
+vision_signature_s_t RED_MOGO = Vision::signature_from_utility(3, 7673, 8267, 7970, -449, -201, -325, 7.100, 0);
+Vision vs {1};
 
 /// Transform an analog joystick value into an output power (for wheels)
 int32_t process_analog(double v) {
@@ -56,6 +63,9 @@ void initialize() {
 	left.set_brake_mode(E_MOTOR_BRAKE_COAST);
 	right.set_brake_mode(E_MOTOR_BRAKE_COAST);
 	hlift.set_brake_mode(E_MOTOR_BRAKE_HOLD);
+	// Vision sensor
+	vs.set_exposure(52);
+	vs.set_wifi_mode(0);
 }
 
 
@@ -150,6 +160,11 @@ int digilog(bool up, bool down, int scale) {
 	return (up ? scale : 0) + (down ? -scale : 0);
 }
 
+enum Intake {
+	Forwards, Backwards, None
+};
+Intake intake_state = Intake::None;
+
 /// Driver control.
 void opcontrol() {
 	while (true) {
@@ -157,15 +172,47 @@ void opcontrol() {
 		left.move_velocity(process_analog((double) ctrl.get_analog(ANALOG_LEFT_Y)));
 		right.move_velocity(process_analog((double) ctrl.get_analog(ANALOG_RIGHT_Y)));
 		// Pneumatic systems
-		if (ctrl.get_digital_new_press(DIGITAL_UP)) blift.set_value(false);
-		if (ctrl.get_digital_new_press(DIGITAL_DOWN)) blift.set_value(true);
+		if (ctrl.get_digital_new_press(DIGITAL_UP)) blift.set_value(true);
+		if (ctrl.get_digital_new_press(DIGITAL_DOWN)) blift.set_value(false);
 		if (ctrl.get_digital_new_press(DIGITAL_L1)) claw.set_value(false);
 		if (ctrl.get_digital_new_press(DIGITAL_L2)) claw.set_value(true);
 		// Lift
 		hlift.move_velocity(digilog(ctrl.get_digital(DIGITAL_R1),ctrl.get_digital(DIGITAL_R2),100));
+		// Intake
+		// refactor please
+		if (ctrl.get_digital_new_press(DIGITAL_X)) {
+			intake_state = intake_state == Intake::Forwards ? Intake::None : Intake::Forwards;
+		}
+		if (ctrl.get_digital_new_press(DIGITAL_B)) {
+			intake_state = intake_state == Intake::Backwards ? Intake::None : Intake::Backwards;
+		}
+		switch (intake_state) {
+			case Intake::Forwards:
+				intake.move_velocity(600);
+				break;
+			case Intake::Backwards:
+				intake.move_velocity(-600);
+				break;
+			case Intake::None:
+				intake.move_velocity(0);
+				break;
+		}
+		// Show largest objects to controller screen
+		// ctrl.clear();
+		// vision_object_s_t obj_arr [3];
+		// auto objs = vs.read_by_size(0, 3, obj_arr);
+		// for (int i = 0; i < objs; i++) {
+		// 	auto obj = obj_arr[i];
+		// 	ctrl.print(i, 1, "Mid: (%d, %d), Dim: (%d, %d)", obj.x_middle_coord, obj.y_middle_coord, obj.width, obj.height);
+		// }
+
+		// Haptic feedback
+		if (claw_switch.get_new_press()) ctrl.rumble("-");
+		if (back_switch.get_new_press()) ctrl.rumble("-.");
+
 		// Auton for testing
 		// TODO: remove before a comp
-		if (ctrl.get_digital_new_press(DIGITAL_A)) autonomous();
+		// if (ctrl.get_digital_new_press(DIGITAL_A)) autonomous();
 		pros::delay(20);
 	}
 }
