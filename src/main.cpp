@@ -43,16 +43,22 @@ ADIDigitalOut claw {'A'};
 ADIDigitalOut blift {'B'};
 ADIDigitalIn claw_switch {'C'};
 ADIDigitalIn back_switch {'D'};
+ADIDigitalOut mogo_block {'E'};
 
-vision_signature_s_t YELLOW_MOGO = Vision::signature_from_utility(1, 1681, 2071, 1876, -4131, -3429, -3780, 5.700, 0);
-vision_signature_s_t BLUE_MOGO = Vision::signature_from_utility(2, -3419, -2703, -3061, 4121, 11077, 7599, 3.000, 0);
-vision_signature_s_t RED_MOGO = Vision::signature_from_utility(3, 7673, 8267, 7970, -449, -201, -325, 7.100, 0);
-Vision vs {1};
+constexpr int32_t YELLOW_SIG = 1;
+constexpr int32_t BLUE_SIG = 2;
+constexpr int32_t RED_SIG = 3;
+
+vision_signature_s_t YELLOW_MOGO = Vision::signature_from_utility(YELLOW_SIG, 95, 1519, 806, -3341, -2601, -2972, 2.500, 0);
+vision_signature_s_t BLUE_MOGO = Vision::signature_from_utility(BLUE_SIG, -3091, -2277, -2684, 9599, 14073, 11836, 3.000, 0);
+vision_signature_s_t RED_MOGO = Vision::signature_from_utility(RED_SIG, 4801, 6877, 5840, -65, 567, 250, 2.500, 0);
+Vision vs {9};
 
 /// Transform an analog joystick value into an output power (for wheels)
 int32_t process_analog(double v) {
 	if (abs(v) < 20) return 0;
 	return v/127.0*600.0;
+	// return powf(v/127.0, 2.0)*600.0
 }
 
 /// Initialize before anything else runs
@@ -66,13 +72,26 @@ void initialize() {
 	// Vision sensor
 	vs.set_exposure(52);
 	vs.set_wifi_mode(0);
+	vs.set_signature(YELLOW_SIG, &YELLOW_MOGO);
+	vs.set_signature(BLUE_SIG, &BLUE_MOGO);
+	vs.set_signature(RED_SIG, &RED_MOGO);
+
+	// lift handling
+	hlift.move_velocity(-100);
+	delay(500);
+	hlift.move(0);
 }
 
 
 void disabled() {}
 
 
-void competition_initialize() {}
+void competition_initialize() {
+	
+	hlift.move_velocity(-100);
+	delay(500);
+	hlift.move(0);
+}
 
 /// Run a PID loop with the given constants, to goal. Will stop when error is within thresh.
 /// `progress()` gives the current progress to determine the error;
@@ -145,12 +164,51 @@ void self_ramp() {
 	right.move_velocity(0);
 }
 
+constexpr double INERT_FACTOR = 0.1;
+
 /// Runs the autonomous routine
 // TODO: better system than downloading twice for skills vs match
 void autonomous() {
 	left.set_brake_mode(E_MOTOR_BRAKE_HOLD);
 	right.set_brake_mode(E_MOTOR_BRAKE_HOLD);
-	self_ramp();
+
+	// inert.tare();
+	
+	// hlift.move_velocity(-100);
+	double time = 0;
+	mogo_block.set_value(true);
+	while (!claw_switch.get_new_press() && time < 1500) {
+		double i = inert.get_heading() * INERT_FACTOR;
+		i = 0; // remove for etsting
+		left.move_velocity(600 - (time/4.0) - i);
+		right.move_velocity(600 - (time/4.0) + i);
+		time += 5.0;
+		delay(5);
+	}
+	claw.set_value(true);
+	// left.move_velocity(0);
+	// right.move_velocity(0);
+	delay(50);
+	left.move_velocity(-600);
+	right.move_velocity(-600);
+	// hlift.move(0);
+	delay(1000);
+	left.move_velocity(-50);
+	right.move_velocity(50);
+	while (true) {
+		auto target = vs.get_by_size(0);
+		printf("%d middle %d errno is %d\n", target.signature, target.x_middle_coord, errno);
+		if (138 < target.x_middle_coord && target.x_middle_coord < 178) break;
+		delay(5);
+		// break;
+	}
+	left.move_velocity(-300);
+	right.move_velocity(-300);
+	delay(1000);
+	blift.set_value(true);
+	intake.move_velocity(600);
+	delay(2000);
+	intake.move_velocity(0);
 	left.set_brake_mode(E_MOTOR_BRAKE_COAST);
 	right.set_brake_mode(E_MOTOR_BRAKE_COAST);
 }
@@ -165,6 +223,8 @@ enum Intake {
 };
 Intake intake_state = Intake::None;
 
+bool mogo_block_active = true;
+
 /// Driver control.
 void opcontrol() {
 	while (true) {
@@ -176,6 +236,8 @@ void opcontrol() {
 		if (ctrl.get_digital_new_press(DIGITAL_DOWN)) blift.set_value(false);
 		if (ctrl.get_digital_new_press(DIGITAL_L1)) claw.set_value(false);
 		if (ctrl.get_digital_new_press(DIGITAL_L2)) claw.set_value(true);
+		if (ctrl.get_digital_new_press(DIGITAL_Y)) mogo_block.set_value(mogo_block_active ^= true);
+		
 		// Lift
 		hlift.move_velocity(digilog(ctrl.get_digital(DIGITAL_R1),ctrl.get_digital(DIGITAL_R2),100));
 		// Intake
@@ -212,7 +274,7 @@ void opcontrol() {
 
 		// Auton for testing
 		// TODO: remove before a comp
-		// if (ctrl.get_digital_new_press(DIGITAL_A)) autonomous();
+		if (ctrl.get_digital_new_press(DIGITAL_A)) autonomous();
 		pros::delay(20);
 	}
 }
